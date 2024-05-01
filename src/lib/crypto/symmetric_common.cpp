@@ -42,6 +42,84 @@ pgp_cipher_block_size(pgp_crypt_t *crypt)
     return crypt->blocksize;
 }
 
+/* we rely on fact that in and out could be the same */
+int
+pgp_cipher_cfb_encrypt(pgp_crypt_t *crypt, uint8_t *out, const uint8_t *in, size_t bytes)
+{
+    uint64_t *in64;
+    uint64_t  buf64[512]; // 4KB - page size
+    uint64_t  iv64[2];
+    size_t    blocks, blockb;
+    size_t    blsize = crypt->blocksize;
+
+    /* encrypting till the block boundary */
+    while (bytes && crypt->cfb.remaining) {
+        *out = *in++ ^ crypt->cfb.iv[blsize - crypt->cfb.remaining];
+        crypt->cfb.iv[blsize - crypt->cfb.remaining] = *out++;
+        crypt->cfb.remaining--;
+        bytes--;
+    }
+
+    if (!bytes) {
+        return 0;
+    }
+
+    /* encrypting full blocks */
+    if (bytes > blsize) {
+        memcpy(iv64, crypt->cfb.iv, blsize);
+        while ((blocks = bytes & ~(blsize - 1)) > 0) {
+            if (blocks > sizeof(buf64)) {
+                blocks = sizeof(buf64);
+            }
+            bytes -= blocks;
+            blockb = blocks;
+            memcpy(buf64, in, blockb);
+            in64 = buf64;
+
+            if (blsize == 16) {
+                blocks >>= 4;
+                while (blocks--) {
+                    pgp_cipher_encrypt_block(crypt, (uint8_t *) iv64, 16);
+                    *in64 ^= iv64[0];
+                    iv64[0] = *in64++;
+                    *in64 ^= iv64[1];
+                    iv64[1] = *in64++;
+                }
+            } else {
+                blocks >>= 3;
+                while (blocks--) {
+                    pgp_cipher_encrypt_block(crypt, (uint8_t *) iv64, 8);
+                    *in64 ^= iv64[0];
+                    iv64[0] = *in64++;
+                }
+            }
+
+            memcpy(out, buf64, blockb);
+            out += blockb;
+            in += blockb;
+        }
+
+        memcpy(crypt->cfb.iv, iv64, blsize);
+    }
+
+    if (!bytes) {
+        return 0;
+    }
+
+    pgp_cipher_encrypt_block(crypt, crypt->cfb.iv, blsize);
+    crypt->cfb.remaining = blsize;
+
+    /* encrypting tail */
+    while (bytes) {
+        *out = *in++ ^ crypt->cfb.iv[blsize - crypt->cfb.remaining];
+        crypt->cfb.iv[blsize - crypt->cfb.remaining] = *out++;
+        crypt->cfb.remaining--;
+        bytes--;
+    }
+
+    return 0;
+}
+
 unsigned
 pgp_block_size(pgp_symm_alg_t alg)
 {
