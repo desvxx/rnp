@@ -85,6 +85,7 @@ const char *usage =
   "  --overwrite            Overwrite output file without a prompt.\n"
   "  --notty                Do not write anything to the TTY.\n"
   "  --current-time         Override system's time.\n"
+  "  --allow-old-ciphers    Allow to use 64-bit ciphers (CAST5, 3DES, IDEA, BLOWFISH).\n"
   "\n"
   "See man page for a detailed listing and explanation.\n"
   "\n";
@@ -141,6 +142,7 @@ struct option options[] = {
   {"add-subkey", no_argument, NULL, OPT_ADD_SUBKEY},
   {"set-expire", required_argument, NULL, OPT_SET_EXPIRE},
   {"current-time", required_argument, NULL, OPT_CURTIME},
+  {"allow-old-ciphers", no_argument, NULL, OPT_ALLOW_OLD_CIPHERS},
   {"allow-weak-hash", no_argument, NULL, OPT_ALLOW_WEAK_HASH},
   {"keyfile", required_argument, NULL, OPT_KEYFILE},
   {NULL, 0, NULL, 0},
@@ -606,6 +608,9 @@ setoption(rnp_cfg &cfg, optdefs_t *cmd, int val, const char *arg)
     case OPT_CURTIME:
         cfg.set_str(CFG_CURTIME, arg);
         return true;
+    case OPT_ALLOW_OLD_CIPHERS:
+        cfg.set_bool(CFG_ALLOW_OLD_CIPHERS, true);
+        return true;
     case OPT_ADD_SUBKEY:
         cfg.set_bool(CFG_ADD_SUBKEY, true);
         return true;
@@ -641,6 +646,12 @@ rnpkeys_init(cli_rnp_t &rnp, const rnp_cfg &cfg)
     }
     if (!cli_rnp_check_weak_hash(&rnp)) {
         ERR_MSG("Weak hash algorithm detected. Pass --allow-weak-hash option if you really "
+                "want to use it.");
+        return false;
+    }
+
+    if (!cli_rnp_check_old_ciphers(&rnp)) {
+        ERR_MSG("Old cipher detected. Pass --allow-old-ciphers option if you really "
                 "want to use it.");
         return false;
     }
