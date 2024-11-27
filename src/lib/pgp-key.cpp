@@ -275,6 +275,9 @@ update_sig_expiration(pgp_signature_t *      dst,
 {
     try {
         *dst = *src;
+        if (dst->halg == PGP_HASH_SHA1) {
+            dst->halg = PGP_HASH_SHA256;
+        }
         if (!expiry) {
             dst->remove_subpkt(dst->find_subpkt(pgp::pkt::sigsub::Type::KeyExpirationTime));
             ;
@@ -304,12 +307,12 @@ pgp_key_set_expiration(pgp_key_t *                    key,
     std::vector<pgp_sig_id_t> sigs;
     /* update expiration for the latest direct-key signature and self-signature for each userid
      */
-    pgp_subsig_t *sig = key->latest_selfsig(PGP_UID_NONE);
+    pgp_subsig_t *sig = key->latest_selfsig(PGP_UID_NONE, false);
     if (sig) {
         sigs.push_back(sig->sigid);
     }
     for (size_t uid = 0; uid < key->uid_count(); uid++) {
-        sig = key->latest_selfsig(uid);
+        sig = key->latest_selfsig(uid, false);
         if (sig) {
             sigs.push_back(sig->sigid);
         }
@@ -351,9 +354,11 @@ pgp_key_set_expiration(pgp_key_t *                    key,
             }
             /* replace signature, first for secret key since it may be replaced in public */
             if (seckey->has_sig(oldsigid)) {
+                //seckey->add_sig(newsig);
                 seckey->replace_sig(oldsigid, newsig);
             }
             if (key != seckey) {
+                //key->add_sig(newsig);
                 key->replace_sig(oldsigid, newsig);
             }
         } catch (const std::exception &e) {
@@ -387,7 +392,7 @@ pgp_subkey_set_expiration(pgp_key_t *                    sub,
     }
 
     /* find the latest valid subkey binding */
-    pgp_subsig_t *subsig = sub->latest_binding();
+    pgp_subsig_t *subsig = sub->latest_binding(false);
     if (!subsig) {
         RNP_LOG("No valid subkey binding");
         return false;
@@ -1766,14 +1771,14 @@ pgp_key_t::write_vec() const
 #define PGP_UID_ANY ((uint32_t) -3)
 
 pgp_subsig_t *
-pgp_key_t::latest_selfsig(uint32_t uid)
+pgp_key_t::latest_selfsig(uint32_t uid, bool validated)
 {
     uint32_t      latest = 0;
     pgp_subsig_t *res = nullptr;
 
     for (auto &sigid : sigs_) {
         auto &sig = get_sig(sigid);
-        if (!sig.valid()) {
+        if (validated && !sig.valid()) {
             continue;
         }
         bool skip = false;
@@ -1807,7 +1812,7 @@ pgp_key_t::latest_selfsig(uint32_t uid)
 
     /* if there is later self-sig for the same uid without primary flag, then drop res */
     if ((uid == PGP_UID_PRIMARY) && res) {
-        pgp_subsig_t *overres = latest_selfsig(res->uid);
+        pgp_subsig_t *overres = latest_selfsig(res->uid, validated);
         if (overres && (overres->sig.creation() > res->sig.creation())) {
             res = nullptr;
         }
